@@ -12,6 +12,8 @@ lazy val root = (project in file(".")).
       "com.typesafe.akka" %% "akka-actor" % "2.5.9",
       "com.typesafe.akka" %% "akka-testkit" % "2.5.9" % Test,
       "org.scala-lang.modules" %% "scala-parser-combinators" % "1.1.0",
+      "commons-codec" % "commons-codec" % "1.11",
+      "com.typesafe.play" %% "play-ahc-ws-standalone" % "1.1.3",
       scalaTest % Test
     )
   )
