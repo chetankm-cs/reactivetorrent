@@ -1,46 +1,37 @@
 
 import java.net.InetSocketAddress
-import java.nio.charset.StandardCharsets
 
-import PeerConnection.HandShake
+import ProtocolMessages.{HandShake, Message}
 import akka.actor.{Actor, ActorRef, Props}
 import akka.io.Tcp
 import akka.util.ByteString
 
-case class PeerConnection(inetSocketAddress: InetSocketAddress, infoHashHex: String, peerId: String) extends Actor {
+case class PeerConnection(inetSocketAddress: InetSocketAddress, infoHashHex: Array[Byte], peerId: String) extends Actor {
   var interested = false
   var choking = false
-  val client: ActorRef = context.system.actorOf(UdpClient.props(inetSocketAddress))
+  val client: ActorRef = context.system.actorOf(TcpClient.props(inetSocketAddress, self))
+  val tag: String = inetSocketAddress.getHostName
 
-  client ! HandShake(infoHashHex, peerId).bytes
+  def protocolHandler: Receive = {
+    case "connection closed" =>
+      println(s"Closing connection for $tag")
+      context stop self
+    case data: ByteString =>
+      val msg = Message.decode(data)
+      println(s"msg received $msg for $tag")
+  }
 
   override def receive: Receive = {
     case c: Tcp.Connected =>
-      sender() ! HandShake(infoHashHex, peerId)
-    case other =>
-      println(s"Other $other")
+      println(s"${inetSocketAddress.getHostName} connected")
+      sender() ! Message.encode(HandShake(infoHashHex, peerId))
+      context become protocolHandler
+    case "connection closed" =>
+      println(s"Closing connection for $tag")
+      context stop self
   }
 }
 
 object PeerConnection {
-  def props(inetSocketAddress: InetSocketAddress, infoHashHex: String, peerId: String) = Props(new PeerConnection(inetSocketAddress, infoHashHex, peerId))
-
-  def hex2bytes(hex: String): Array[Byte] = {
-    hex.replaceAll("[^0-9A-Fa-f]", "").sliding(2, 2).toArray.map(Integer.parseInt(_, 16).toByte)
-  }
-
-  trait Messages {
-    def bytes: ByteString
-  }
-
-  case class HandShake(infoHashHex: String, peerId: String) extends Messages {
-    lazy val bytes: ByteString = ByteString.newBuilder
-      .putByte(19.toByte)
-      .putBytes("BitTorrent protocol".getBytes())
-      .putBytes(Stream.fill(8)(0.toByte).toArray)
-      .putBytes(hex2bytes(infoHashHex))
-      .putBytes(peerId.getBytes(StandardCharsets.ISO_8859_1))
-      .result()
-  }
-
+  def props(inetSocketAddress: InetSocketAddress, infoHash: Array[Byte], peerId: String) = Props(new PeerConnection(inetSocketAddress, infoHash, peerId))
 }

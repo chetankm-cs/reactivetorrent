@@ -20,7 +20,7 @@ class Tracker(file: File, wsClient: StandaloneWSClient) {
     x.grouped(2).toList.map("%" + _).mkString("")
   }
 
-  def init(): Future[(Long, List[Peer])] = {
+  def init(): Future[Unit] = {
     val source = Source.fromFile(file)(Codec(StandardCharsets.ISO_8859_1)).mkString
 
     val metaInfo = BencodeDecoder.decode(source).get.as[BeDict]
@@ -50,11 +50,16 @@ class Tracker(file: File, wsClient: StandaloneWSClient) {
 
         val interval = response.d("interval").as[BeNumber].i
 
-        val peer = peers.head
-        println(s"First peer: $peer")
-        val props = PeerConnection.props(new InetSocketAddress(peer.host, peer.port), sha1, peer_id)
-        Main.system.actorOf(props)
-        (interval, peers)
+        peers.map {
+          peer =>
+            println(s"Starting PeerConnection for ${peer.host} ")
+            val props = PeerConnection.props(new InetSocketAddress(peer.host, peer.port), hex2bytes(sha1), peer_id)
+            Main.system.actorOf(props)
+        }
     }
+  }
+
+  def hex2bytes(hex: String): Array[Byte] = {
+    hex.replaceAll("[^0-9A-Fa-f]", "").sliding(2, 2).toArray.map(Integer.parseInt(_, 16).toByte)
   }
 }
