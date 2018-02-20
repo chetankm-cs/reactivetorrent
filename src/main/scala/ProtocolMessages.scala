@@ -1,5 +1,5 @@
 import java.nio.ByteBuffer
-import java.nio.charset.StandardCharsets
+import java.nio.charset.{Charset, StandardCharsets}
 
 import akka.util.ByteString
 
@@ -26,6 +26,15 @@ object ProtocolMessages {
   }
 
   object Message {
+
+    implicit class MessageLength(message: Message) {
+      def byteLength: Int = message match {
+        case h:HandShake =>  1 + 19 + 8 + 20 + 20
+        case KeepAlive => 4
+        case a: LengthEncodedMessage => a.length
+      }
+    }
+
     def encode(message: Message): ByteString = message match {
 
       case HandShake(infoHash, peerId) => ByteString.newBuilder
@@ -99,13 +108,16 @@ object ProtocolMessages {
 
   }
 
-  case class HandShake(infoHash: Array[Byte], peerId: String) extends Message
+  case class HandShake(infoHash: Array[Byte], peerId: String) extends Message {
+    override def toString: String = s"HandShake(${ByteString.fromArray(infoHash)}, $peerId)"
+  }
 
   object HandShake {
     def fromByteString(byteString: ByteString): Message = {
       val payload = byteString.drop(1 + 19 + 8)
       val (infoHash, peerId) = payload.splitAt(20)
-      HandShake(infoHash.toArray, peerId.toString())
+      val peerIdDecoded = peerId.take(20).decodeString(StandardCharsets.ISO_8859_1)
+      HandShake(infoHash.toArray, peerIdDecoded)
     }
   }
 

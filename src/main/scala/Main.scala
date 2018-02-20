@@ -1,9 +1,7 @@
 import java.io.File
-import java.net.InetSocketAddress
 
 import akka.actor.ActorSystem
 import akka.stream.ActorMaterializer
-import bencode.Tokens.BeDict
 import play.api.libs.ws.ahc.StandaloneAhcWSClient
 
 import scala.concurrent.Await

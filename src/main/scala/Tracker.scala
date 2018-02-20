@@ -53,7 +53,7 @@ class Tracker(file: File, wsClient: StandaloneWSClient) {
         peers.map {
           peer =>
             println(s"Starting PeerConnection for ${peer.host} ")
-            val props = PeerConnection.props(new InetSocketAddress(peer.host, peer.port), hex2bytes(sha1), peer_id)
+            val props = PeerConnection.props(new InetSocketAddress(peer.host, peer.port), hex2bytes(sha1), peer_id, peer.peerId)
             Main.system.actorOf(props)
         }
     }
