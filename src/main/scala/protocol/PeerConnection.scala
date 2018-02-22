@@ -1,10 +1,13 @@
+package protocol
+
 
 import java.net.InetSocketAddress
 
-import ProtocolMessages.{HandShake, KeepAlive, Message}
 import akka.actor.{Actor, ActorRef, Props}
 import akka.io.Tcp
 import akka.util.ByteString
+import network.TcpClient
+import protocol.ProtocolMessages.{HandShake, KeepAlive, Message}
 
 case class PeerConnection(inetSocketAddress: InetSocketAddress, infoHash: Array[Byte], peerId: String, expectedPeerId: String)
   extends Actor {

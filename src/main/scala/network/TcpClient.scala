@@ -1,3 +1,5 @@
+package network
+
 import java.net.InetSocketAddress
 
 import akka.actor.{Actor, ActorRef, Props}

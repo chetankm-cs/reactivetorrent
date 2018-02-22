@@ -1,5 +1,7 @@
+package protocol
+
 import java.nio.ByteBuffer
-import java.nio.charset.{Charset, StandardCharsets}
+import java.nio.charset.StandardCharsets
 
 import akka.util.ByteString
 

@@ -6,6 +6,7 @@ import bencode.Tokens.{BeDict, BeString, _}
 import bencode.{BencodeDecoder, BencodeEncoder}
 import org.apache.commons.codec.digest.DigestUtils
 import play.api.libs.ws.StandaloneWSClient
+import protocol.PeerConnection
 
 import scala.concurrent.Future
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -24,6 +25,8 @@ class Tracker(file: File, wsClient: StandaloneWSClient) {
     val source = Source.fromFile(file)(Codec(StandardCharsets.ISO_8859_1)).mkString
 
     val metaInfo = BencodeDecoder.decode(source).get.as[BeDict]
+    println(metaInfo)
+
     val announce = metaInfo.d("announce").as[BeString]
     val info = metaInfo.d("info").as[BeDict]
 
@@ -37,6 +40,7 @@ class Tracker(file: File, wsClient: StandaloneWSClient) {
     wsClient.url(url).get().map {
       res =>
         val response = BencodeDecoder.decode(res.body).get.as[BeDict]
+
         val peerInfoList = response.d("peers").as[BeList].l.map(_.as[BeDict])
 
         val peers = peerInfoList.map {
@@ -48,11 +52,12 @@ class Tracker(file: File, wsClient: StandaloneWSClient) {
             )
         }
 
+
         val interval = response.d("interval").as[BeNumber].i
 
         peers.map {
           peer =>
-            println(s"Starting PeerConnection for ${peer.host} ")
+            println(s"Starting protocol.PeerConnection for ${peer.host} ")
             val props = PeerConnection.props(new InetSocketAddress(peer.host, peer.port), hex2bytes(sha1), peer_id, peer.peerId)
             Main.system.actorOf(props)
         }
