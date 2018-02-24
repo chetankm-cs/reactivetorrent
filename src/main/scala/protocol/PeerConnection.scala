@@ -6,15 +6,22 @@ import java.net.InetSocketAddress
 import akka.actor.{Actor, ActorRef, Props}
 import akka.io.Tcp
 import akka.util.ByteString
+import bencode.Tokens.{BeDict, BeNumber}
 import network.TcpClient
 import protocol.ProtocolMessages.{HandShake, KeepAlive, Message}
 
-case class PeerConnection(inetSocketAddress: InetSocketAddress, infoHash: Array[Byte], peerId: String, expectedPeerId: String)
+case class PeerConnection(inetSocketAddress: InetSocketAddress, infoHash: Array[Byte], peerId: String, expectedPeerId: String, info: BeDict)
   extends Actor {
 
   var interested = false
   var choking = false
   val client: ActorRef = context.system.actorOf(TcpClient.props(inetSocketAddress, self))
+  val downloadHandler: ActorRef = context.system.actorOf {
+    DownloaderFSM.props(
+      info.d("piece length").as[BeNumber].i.toInt,
+      info.d("length").as[BeNumber].i.toInt,
+      client)
+  }
   val tag: String = inetSocketAddress.getHostName
   var prevData: ByteString = ByteString.empty
 
@@ -30,7 +37,7 @@ case class PeerConnection(inetSocketAddress: InetSocketAddress, infoHash: Array[
         msg => rawData.drop(msg.byteLength)
       }
 
-      if (msgOpt.isEmpty) println(s"Invalid msg: $data received for $tag ")
+      if (msgOpt.isEmpty) println(s"Invalid msg received for $tag ")
 
       msgOpt foreach {
         msg =>
@@ -48,7 +55,8 @@ case class PeerConnection(inetSocketAddress: InetSocketAddress, infoHash: Array[
           println(s"PeerId:: received:$receivedPeerId expected: $expectedPeerId")
           client ! "close"
         }
-      case other => "hello"
+      case other =>
+        downloadHandler ! other
     }
 
   override def receive: Receive = {
@@ -63,5 +71,6 @@ case class PeerConnection(inetSocketAddress: InetSocketAddress, infoHash: Array[
 }
 
 object PeerConnection {
-  def props(inetSocketAddress: InetSocketAddress, infoHash: Array[Byte], peerId: String, expectedPeerId: String) = Props(new PeerConnection(inetSocketAddress, infoHash, peerId, expectedPeerId))
+  def props(inetSocketAddress: InetSocketAddress, infoHash: Array[Byte], peerId: String, expectedPeerId: String, info: BeDict) =
+    Props(new PeerConnection(inetSocketAddress, infoHash, peerId, expectedPeerId, info))
 }

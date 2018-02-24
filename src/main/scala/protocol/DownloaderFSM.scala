@@ -1,15 +1,15 @@
 package protocol
 
-import akka.actor.Actor
-import protocol.ProtocolMessages.{BitField, Message, Piece, UnChoke}
-import DownloaderFSM._
+import akka.actor.{Actor, ActorRef, Props}
+import protocol.DownloaderFSM._
+import protocol.ProtocolMessages.{BitField, Interested, Message, Piece, Request, UnChoke}
 
-case class FileStats(pieceLength: Int, fileLength: Int) {
-  def pieces: Int = Math.ceil(fileLength.toDouble / pieceLength).toInt
+case class FileStats(pieceSize: Int, fileLength: Int) {
+  def pieces: Int = Math.ceil(fileLength.toDouble / pieceSize).toInt
 
-  def pieceLength(index: Int) = {
-    val x = fileLength - (pieceLength * index)
-    if (x < pieceLength) x else pieceLength
+  def pieceLength(index: Int): Int = {
+    val x = fileLength - (pieceSize * index)
+    if (x < pieceSize) x else pieceSize
   }
 
   def blocksInPiece(index: Int): Int = {
@@ -18,12 +18,12 @@ case class FileStats(pieceLength: Int, fileLength: Int) {
   }
 
   def blockLength(index: Int, blockIndex: Int): Int = {
-    val x = pieceLength - (blockIndex * blockSize)
+    val x = pieceLength(index) - (blockIndex * blockSize)
     if (x < blockSize) x else blockSize
   }
 }
 
-class DownloaderFSM(pieceLength: Int, fileLength: Int) extends Actor {
+class DownloaderFSM(pieceLength: Int, fileLength: Int, connection: ActorRef) extends Actor {
   val fileStats = FileStats(pieceLength, fileLength)
   val blocksPerPiece: Int = pieceLength / blockSize // assuming multiple of 2^16
   var downloadedPieces: Map[Int, List[Byte]] = Map.empty
@@ -38,11 +38,36 @@ class DownloaderFSM(pieceLength: Int, fileLength: Int) extends Actor {
       (byte(bIndex) & (1 << bOffSet)) > 1
   }
 
+  def sendRequest(): Unit = {
+    val toDownload: Set[Int] = availablePieces -- downloadedPieces.keySet
+    if (toDownload.isEmpty) {
+      println("All Bytes downloaded")
+    } else {
+      val mayBeNextBlock = inProgressPieces.find {
+        case (piece, pieceProgress) =>
+          fileStats.blocksInPiece(piece) != pieceProgress.size
+      }.map {
+        case (piece, pieceProgress) =>
+          (piece, pieceProgress.size) // download next block
+      }
+      val (pieceToDownload, blockIndex) = mayBeNextBlock.getOrElse((toDownload.min, 0))
+      val request = Request(pieceToDownload, blockIndex * blockSize, fileStats.blockLength(pieceToDownload, blockIndex))
+      val msg = Message.encode(request)
+      println(s"Sending Request $msg")
+      connection ! msg
+    }
+  }
 
   def handleMessage(message: Message): Unit = message match {
     case BitField(bytes) =>
       availablePieces = (1 to fileStats.pieces).filter(isSet(_, bytes)).toSet
+      if (availablePieces.nonEmpty) {
+        val msg = Message.encode(Interested)
+        println(s"Sending Interested: $msg")
+        connection ! msg
+      }
     case UnChoke =>
+      sendRequest()
     //request
     case Piece(index, begin, block) =>
       if (begin % blockSize != 0) println(s"Invalid begin $begin")
@@ -56,8 +81,10 @@ class DownloaderFSM(pieceLength: Int, fileLength: Int) extends Actor {
         inProgressPieces = inProgressPieces - index
         println(s"Downloaded Piece $index")
       } else {
+        println(s"Downloaded: Piece $index, Block $blockIndex")
         inProgressPieces = inProgressPieces.updated(index, updatedProgress)
       }
+      sendRequest()
     // updateState
     case other => ()
   }
@@ -73,6 +100,7 @@ class DownloaderFSM(pieceLength: Int, fileLength: Int) extends Actor {
 case class ConnectionState(choked: Boolean = true, interested: Boolean = false)
 
 object DownloaderFSM {
-  val blockSize: Int = 1 << 16
+  val blockSize: Int = 1 << 14
 
+  def props(pieceLength: Int, fileLength: Int, connectionRef: ActorRef) = Props(new DownloaderFSM(pieceLength, fileLength, connectionRef))
 }

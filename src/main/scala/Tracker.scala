@@ -55,12 +55,10 @@ class Tracker(file: File, wsClient: StandaloneWSClient) {
 
         val interval = response.d("interval").as[BeNumber].i
 
-        peers.map {
-          peer =>
-            println(s"Starting protocol.PeerConnection for ${peer.host} ")
-            val props = PeerConnection.props(new InetSocketAddress(peer.host, peer.port), hex2bytes(sha1), peer_id, peer.peerId)
-            Main.system.actorOf(props)
-        }
+        val peer = peers.last
+        println(s"Starting protocol.PeerConnection for ${peer.host} ")
+        val props = PeerConnection.props(new InetSocketAddress(peer.host, peer.port), hex2bytes(sha1), peer_id, peer.peerId, info)
+        Main.system.actorOf(props)
     }
   }
 

@@ -16,7 +16,7 @@ object ProtocolMessages {
 
     def payLoad: Option[List[Byte]]
 
-    def length: Int = 4 + 1 + payLoad.fold(0)(_.length)
+    def length: Int = 1 + payLoad.fold(0)(_.length)
   }
 
   abstract class SingleLengthMessage(override val msgType: Int) extends LengthEncodedMessage {
@@ -31,9 +31,9 @@ object ProtocolMessages {
 
     implicit class MessageLength(message: Message) {
       def byteLength: Int = message match {
-        case h:HandShake =>  1 + 19 + 8 + 20 + 20
+        case h: HandShake => 1 + 19 + 8 + 20 + 20
         case KeepAlive => 4
-        case a: LengthEncodedMessage => a.length
+        case a: LengthEncodedMessage => 4 + a.length
       }
     }
 
@@ -62,13 +62,16 @@ object ProtocolMessages {
         case handshake if byteString.head.toInt == 19 => Some(HandShake.fromByteString(handshake))
         case keepAlive if keepAlive.payloadLength.contains(0) => Some(KeepAlive)
         case lengthEncoded =>
-          val msg = lengthEncoded.drop(5)
+          val (lengthType, msg) = lengthEncoded.splitAt(5)
+          val length = lengthType.take(4).toByteBuffer.getInt()
           lengthEncoded.msgType.flatMap {
             case Choke.msgType => Some(Choke)
             case UnChoke.msgType => Some(UnChoke)
             case Interested.msgType => Some(Interested)
             case NotInterested.msgType => Some(NotInterested)
-            case Have.msgType => msg.headOption.map(b => Have(b))
+            case Have.msgType =>
+              val piece = msg.asByteBuffer.getInt
+              Some(Have(piece))
             case BitField.msgType => Try(BitField(msg.toList)).toOption
             case Request.msgType =>
               Try {
@@ -79,7 +82,10 @@ object ProtocolMessages {
             case Piece.msgType => Try {
               val (indexes, block) = msg.splitAt(8)
               val (index, begin) = indexes.splitAt(4)
-              Piece(index.asByteBuffer.getInt, begin.asByteBuffer.getInt, block.toList)
+              if(block.length == length - 9)
+              Piece(index.asByteBuffer.getInt, begin.asByteBuffer.getInt, block.take(length - 9).toList)
+              else
+                throw new Exception("Incomplete msg")
             }.toOption
             case Cancel.msgType =>
               Try {
@@ -133,10 +139,10 @@ object ProtocolMessages {
 
   case object NotInterested extends SingleLengthMessage(3)
 
-  case class Have(piece: Byte) extends LengthEncodedMessage {
+  case class Have(piece: Int) extends LengthEncodedMessage {
     override val msgType: Int = Have.msgType
 
-    override def payLoad: Option[List[Byte]] = Some(List(piece))
+    override def payLoad: Option[List[Byte]] = Some(piece.toByteArray.toList)
   }
 
   object Have {
@@ -168,6 +174,8 @@ object ProtocolMessages {
     override val msgType: Int = Piece.msgType
 
     override def payLoad: Option[List[Byte]] = Some((index.toByteArray ++ begin.toByteArray ++ block).toList)
+
+    override def toString: String = s"Peice($index, $begin, ${block.length} bytes)"
   }
 
   object Piece {
