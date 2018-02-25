@@ -14,17 +14,19 @@ object ProtocolMessages {
   sealed trait LengthEncodedMessage extends Message {
     val msgType: Int
 
-    def payLoad: Option[List[Byte]]
+    val payLoad: Option[ByteString]
 
     def length: Int = 1 + payLoad.fold(0)(_.length)
   }
 
   abstract class SingleLengthMessage(override val msgType: Int) extends LengthEncodedMessage {
-    override def payLoad: Option[List[Byte]] = None
+    override val payLoad: Option[ByteString] = None
   }
 
   implicit class IntToByteArray(int: Int) {
     def toByteArray: Array[Byte] = ByteBuffer.allocate(4).putInt(int).array()
+
+    def toByteString: ByteString = ByteString.fromArray(toByteArray)
   }
 
   object Message {
@@ -51,7 +53,7 @@ object ProtocolMessages {
 
       case a: LengthEncodedMessage =>
         ByteString.newBuilder
-          .putBytes(a.length.toByteArray)
+          .append(a.length.toByteString)
           .putByte(a.msgType.toByte)
           .putBytes(a.payLoad.map(_.toArray).getOrElse(Array.emptyByteArray))
           .result()
@@ -72,7 +74,7 @@ object ProtocolMessages {
             case Have.msgType =>
               val piece = msg.asByteBuffer.getInt
               Some(Have(piece))
-            case BitField.msgType => Try(BitField(msg.toList)).toOption
+            case BitField.msgType => Try(BitField(msg)).toOption
             case Request.msgType =>
               Try {
                 val integers: List[Int] = msg.grouped(4).take(3).map(_.asByteBuffer.getInt).toList
@@ -82,8 +84,8 @@ object ProtocolMessages {
             case Piece.msgType => Try {
               val (indexes, block) = msg.splitAt(8)
               val (index, begin) = indexes.splitAt(4)
-              if(block.length == length - 9)
-              Piece(index.asByteBuffer.getInt, begin.asByteBuffer.getInt, block.take(length - 9).toList)
+              if (block.length == length - 9)
+                Piece(index.asByteBuffer.getInt, begin.asByteBuffer.getInt, block.take(length - 9))
               else
                 throw new Exception("Incomplete msg")
             }.toOption
@@ -142,17 +144,17 @@ object ProtocolMessages {
   case class Have(piece: Int) extends LengthEncodedMessage {
     override val msgType: Int = Have.msgType
 
-    override def payLoad: Option[List[Byte]] = Some(piece.toByteArray.toList)
+    override val payLoad: Option[ByteString] = Some(piece.toByteString)
   }
 
   object Have {
     val msgType: Int = 4
   }
 
-  case class BitField(bytes: List[Byte]) extends LengthEncodedMessage {
+  case class BitField(bytes: ByteString) extends LengthEncodedMessage {
     override val msgType: Int = BitField.msgType
 
-    override def payLoad: Option[List[Byte]] = Some(bytes)
+    override val payLoad: Option[ByteString] = Some(bytes)
   }
 
   object BitField {
@@ -163,17 +165,17 @@ object ProtocolMessages {
     LengthEncodedMessage {
     override val msgType: Int = Request.msgType
 
-    override def payLoad: Option[List[Byte]] = Some((index.toByteArray ++ begin.toByteArray ++ requestLength.toByteArray).toList)
+    override val payLoad: Option[ByteString] = Some(index.toByteString ++ begin.toByteString ++ requestLength.toByteString)
   }
 
   object Request {
     val msgType: Int = 6
   }
 
-  case class Piece(index: Int, begin: Int, block: List[Byte]) extends LengthEncodedMessage() {
+  case class Piece(index: Int, begin: Int, block: ByteString) extends LengthEncodedMessage() {
     override val msgType: Int = Piece.msgType
 
-    override def payLoad: Option[List[Byte]] = Some((index.toByteArray ++ begin.toByteArray ++ block).toList)
+    override val payLoad: Option[ByteString] = Some(index.toByteString ++ begin.toByteString ++ block)
 
     override def toString: String = s"Peice($index, $begin, ${block.length} bytes)"
   }
@@ -185,7 +187,7 @@ object ProtocolMessages {
   case class Cancel(index: Int, begin: Int, requestLength: Int) extends LengthEncodedMessage {
     override val msgType: Int = Cancel.msgType
 
-    override def payLoad: Option[List[Byte]] = Some((index.toByteArray ++ begin.toByteArray ++ requestLength.toByteArray).toList)
+    override val payLoad: Option[ByteString] = Some(index.toByteString ++ begin.toByteString ++ requestLength.toByteString)
   }
 
   object Cancel {

@@ -1,6 +1,9 @@
 package protocol
 
+import java.nio.file.{Files, Paths}
+
 import akka.actor.{Actor, ActorRef, Props}
+import akka.util.ByteString
 import protocol.DownloaderFSM._
 import protocol.ProtocolMessages.{BitField, Interested, Message, Piece, Request, UnChoke}
 
@@ -26,22 +29,24 @@ case class FileStats(pieceSize: Int, fileLength: Int) {
 class DownloaderFSM(pieceLength: Int, fileLength: Int, connection: ActorRef) extends Actor {
   val fileStats = FileStats(pieceLength, fileLength)
   val blocksPerPiece: Int = pieceLength / blockSize // assuming multiple of 2^16
-  var downloadedPieces: Map[Int, List[Byte]] = Map.empty
+  var downloadedPieces: Map[Int, ByteString] = Map.empty
   var availablePieces: Set[Int] = Set()
-  var inProgressPieces: Map[Int, Map[Int, List[Byte]]] = Map.empty
+  var inProgressPieces: Map[Int, Map[Int, ByteString]] = Map.empty
 
-  def isSet(index: Int, byte: List[Byte]): Boolean = {
+  def isSet(index: Int, byte: ByteString): Boolean = {
     val bIndex = index / 8
     val bOffSet = index % 8
     if (bIndex > byte.length - 1) false
     else
-      (byte(bIndex) & (1 << bOffSet)) > 1
+      (byte(bIndex) & (1 << bOffSet)) >= 1
   }
 
   def sendRequest(): Unit = {
     val toDownload: Set[Int] = availablePieces -- downloadedPieces.keySet
     if (toDownload.isEmpty) {
-      println("All Bytes downloaded")
+      val array = downloadedPieces.toList.sortBy(_._1).flatMap(_._2).toArray
+      Files.write(Paths.get("/Users/workstation/Downloads/toc.pdf"), array)
+      println(s"All Bytes: ${array.length} downloaded")
     } else {
       val mayBeNextBlock = inProgressPieces.find {
         case (piece, pieceProgress) =>
@@ -60,7 +65,7 @@ class DownloaderFSM(pieceLength: Int, fileLength: Int, connection: ActorRef) ext
 
   def handleMessage(message: Message): Unit = message match {
     case BitField(bytes) =>
-      availablePieces = (1 to fileStats.pieces).filter(isSet(_, bytes)).toSet
+      availablePieces = (0 to fileStats.pieces).filter(isSet(_, bytes)).toSet
       if (availablePieces.nonEmpty) {
         val msg = Message.encode(Interested)
         println(s"Sending Interested: $msg")
@@ -68,25 +73,24 @@ class DownloaderFSM(pieceLength: Int, fileLength: Int, connection: ActorRef) ext
       }
     case UnChoke =>
       sendRequest()
-    //request
     case Piece(index, begin, block) =>
       if (begin % blockSize != 0) println(s"Invalid begin $begin")
       val blockIndex: Int = begin / blockSize
       val pieceProgress = inProgressPieces.getOrElse(index, Map.empty)
-      val updatedProgress: Map[Int, List[Byte]] = pieceProgress.updated(blockIndex, block)
+      val updatedProgress: Map[Int, ByteString] = pieceProgress.updated(blockIndex, ByteString(block.toArray))
 
       if (fileStats.blocksInPiece(index) == updatedProgress.size) {
         val pieceData = updatedProgress.toSeq.sortBy(_._1).flatMap(_._2).toList
-        downloadedPieces = downloadedPieces.updated(index, pieceData)
+        downloadedPieces = downloadedPieces.updated(index, ByteString(pieceData.toArray))
         inProgressPieces = inProgressPieces - index
-        println(s"Downloaded Piece $index")
+        println(s"Downloaded: Piece $index")
       } else {
         println(s"Downloaded: Piece $index, Block $blockIndex")
         inProgressPieces = inProgressPieces.updated(index, updatedProgress)
       }
       sendRequest()
-    // updateState
-    case other => ()
+    case other =>
+      println(s"invalid msg: $other")
   }
 
   override def receive: Receive = {
